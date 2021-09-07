@@ -53,7 +53,7 @@ def normalize_obj(mesh_v):
     return mesh_v, pivot, scale
 
 
-def create_single_data(mesh_filaname):
+def create_single_data(mesh_filename):
     d = Display()
     d.start()
     """
@@ -61,7 +61,7 @@ def create_single_data(mesh_filaname):
     :param mesh_filaname: name of the input mesh
     :return: wrapped data, voxelized mesh, and geodesic distance matrix of all vertices
     """
-    mesh = o3d.io.read_triangle_mesh(mesh_filaname)
+    mesh = o3d.io.read_triangle_mesh(mesh_filename)
     mesh.compute_vertex_normals()
     mesh_v = np.asarray(mesh.vertices)
     mesh_vn = np.asarray(mesh.vertex_normals)
@@ -95,15 +95,15 @@ def create_single_data(mesh_filaname):
     batch = torch.zeros(len(v), dtype=torch.long)
 
     # voxel
-    if not os.path.exists(mesh_filaname.replace('_remesh.obj', '_normalized.binvox')):
+    if not os.path.exists(mesh_filename.replace('_remesh.obj', '_normalized.binvox')):
         if platform == "linux" or platform == "linux2":
-            os.system("./binvox -d 88 -pb " + mesh_filaname.replace("_remesh.obj", "_normalized.obj"))
+            os.system("./binvox -d 88 -pb " + mesh_filename.replace("_remesh.obj", "_normalized.obj"))
         elif platform == "win32":
-            os.system("binvox.exe -d 88 " + mesh_filaname.replace("_remesh.obj", "_normalized.obj"))
+            os.system("binvox.exe -d 88 " + mesh_filename.replace("_remesh.obj", "_normalized.obj"))
         else:
             raise Exception('Sorry, we currently only support windows and linux.')
 
-    with open(mesh_filaname.replace('_remesh.obj', '_normalized.binvox'), 'rb') as fvox:
+    with open(mesh_filename.replace('_remesh.obj', '_normalized.binvox'), 'rb') as fvox:
         vox = binvox_rw.read_as_3d_array(fvox)
     d.stop()
 
