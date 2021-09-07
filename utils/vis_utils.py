@@ -117,6 +117,7 @@ def show_obj_skel_plotly(mesh_name, root):
             )
         )
     )
+    fig.update_layout(scene_aspectmode='data')
     fig.show()
     
 
@@ -285,4 +286,5 @@ def show_mesh_vox_plotly(mesh_filename, vox):
             )
         )
     )
+    fig.update_layout(scene_aspectmode='data')
     fig.show()
