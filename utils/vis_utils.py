@@ -12,6 +12,7 @@ import glob
 import numpy as np
 import open3d as o3d
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 
 def drawSphere(center, radius, color=[0.0,0.0,0.0]):
@@ -78,43 +79,46 @@ def show_obj_skel(mesh_name, root):
     image = image.astype(np.uint8)
     return image
 
-def show_obj_skel_headless(mesh_name, root):
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    ctr = vis.get_view_control()
+def o3d2plotly(mesh, opacity=0.5, use_color=True):
+    return go.Mesh3d(
+        x=np.asarray(mesh.vertices)[:,0],
+        y=np.asarray(mesh.vertices)[:,1],
+        z=np.asarray(mesh.vertices)[:,2],
+        i=np.asarray(mesh.triangles)[:,0],
+        j=np.asarray(mesh.triangles)[:,1],
+        k=np.asarray(mesh.triangles)[:,2],
+        vertexcolor=np.asarray(mesh.vertex_colors) if use_color else None,
+        opacity=opacity)
+
+def show_obj_skel_plotly(mesh_name, root):
 
     # draw mesh
     mesh = o3d.io.read_triangle_mesh(mesh_name)
     mesh_ls = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
     mesh_ls.colors = o3d.utility.Vector3dVector([[0.8, 0.8, 0.8] for i in range(len(mesh_ls.lines))])
-    vis.add_geometry(mesh_ls)
-
-    vis.add_geometry(drawSphere(root.pos, 0.01, color=[0.1, 0.1, 0.1]))
+    vis_objects = []
+    vis_objects.append(o3d2plotly(mesh, opacity=0.1, use_color=False))
+    vis_objects.append(o3d2plotly(drawSphere(root.pos, 0.01, color=[0.1, 0.1, 0.1]), opacity=0.9))
     this_level = root.children
     while this_level:
         next_level = []
         for p_node in this_level:
-            vis.add_geometry(drawSphere(p_node.pos, 0.008, color=[1.0, 0.0, 0.0])) # [0.3, 0.1, 0.1]
-            vis.add_geometry(drawCone(np.array(p_node.parent.pos), np.array(p_node.pos)))
+            vis_objects.append(o3d2plotly(drawSphere(p_node.pos, 0.008, color=[1.0, 0.0, 0.0]), opacity=0.9)) # [0.3, 0.1, 0.1]
+            vis_objects.append(o3d2plotly(drawCone(np.array(p_node.parent.pos), np.array(p_node.pos)), opacity=0.9))
             next_level+=p_node.children
         this_level = next_level
-
-    #param = o3d.io.read_pinhole_camera_parameters('sideview.json')
-    #ctr.convert_from_pinhole_camera_parameters(param)
-
-    vis.run()
-    #vis.update_geometry()
-    #vis.poll_events()
-    #vis.update_renderer()
-
-    #param = ctr.convert_to_pinhole_camera_parameters()
-    #o3d.io.write_pinhole_camera_parameters('sideview.json', param)
-
-    image = vis.capture_screen_float_buffer()
-    vis.destroy_window()
-    image = np.asarray(image) * 255
-    image = image.astype(np.uint8)
-    return image
+    fig = go.Figure(
+        data=vis_objects,
+        layout=dict(
+            scene=dict(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False)
+            )
+        )
+    )
+    fig.show()
+    
 
 def draw_shifted_pts(mesh_name, pts, weights=None):
     mesh = o3d.io.read_triangle_mesh(mesh_name)
@@ -252,3 +256,33 @@ def show_mesh_vox(mesh_filename, vox):
     vis.destroy_window()
 
     return
+
+def show_mesh_vox_plotly(mesh_filename, vox):
+
+    vis_objects = []
+
+    vox_pts, vox_lines = volume_to_cubes(vox.data)
+    vox_pts = np.concatenate(vox_pts, axis=0)
+    line_set_vox = o3d.geometry.LineSet()
+    line_set_vox.points = o3d.utility.Vector3dVector(vox_pts+np.array(vox.translate)[np.newaxis, :])
+    line_set_vox.lines = o3d.utility.Vector2iVector(vox_lines)
+    colors = [[0.0, 0.0, 1.0] for i in range(len(vox_lines))]
+    line_set_vox.colors = o3d.utility.Vector3dVector(colors)
+    vis_objects.append(o3d2plotly(line_set_vox))
+
+    mesh = o3d.io.read_triangle_mesh(mesh_filename)
+    mesh_ls = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+    mesh_ls.colors = o3d.utility.Vector3dVector([[1.0, 0.0, 0.0] for i in range(len(mesh_ls.lines))])
+    vis_objects.append(o3d2plotly(mesh_ls))
+
+    fig = go.Figure(
+        data=vis_objects,
+        layout=dict(
+            scene=dict(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False)
+            )
+        )
+    )
+    fig.show()
