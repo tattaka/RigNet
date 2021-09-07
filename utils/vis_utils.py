@@ -78,6 +78,43 @@ def show_obj_skel(mesh_name, root):
     image = image.astype(np.uint8)
     return image
 
+def show_obj_skel_headless(mesh_name, root):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    ctr = vis.get_view_control()
+
+    # draw mesh
+    mesh = o3d.io.read_triangle_mesh(mesh_name)
+    mesh_ls = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+    mesh_ls.colors = o3d.utility.Vector3dVector([[0.8, 0.8, 0.8] for i in range(len(mesh_ls.lines))])
+    vis.add_geometry(mesh_ls)
+
+    vis.add_geometry(drawSphere(root.pos, 0.01, color=[0.1, 0.1, 0.1]))
+    this_level = root.children
+    while this_level:
+        next_level = []
+        for p_node in this_level:
+            vis.add_geometry(drawSphere(p_node.pos, 0.008, color=[1.0, 0.0, 0.0])) # [0.3, 0.1, 0.1]
+            vis.add_geometry(drawCone(np.array(p_node.parent.pos), np.array(p_node.pos)))
+            next_level+=p_node.children
+        this_level = next_level
+
+    #param = o3d.io.read_pinhole_camera_parameters('sideview.json')
+    #ctr.convert_from_pinhole_camera_parameters(param)
+
+    vis.run()
+    #vis.update_geometry()
+    #vis.poll_events()
+    #vis.update_renderer()
+
+    #param = ctr.convert_to_pinhole_camera_parameters()
+    #o3d.io.write_pinhole_camera_parameters('sideview.json', param)
+
+    image = vis.capture_screen_float_buffer()
+    vis.destroy_window()
+    image = np.asarray(image) * 255
+    image = image.astype(np.uint8)
+    return image
 
 def draw_shifted_pts(mesh_name, pts, weights=None):
     mesh = o3d.io.read_triangle_mesh(mesh_name)
