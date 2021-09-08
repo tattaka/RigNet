@@ -6,41 +6,51 @@
 # Please see the LICENSE README.txt file in the main directory for more information and instruction on using and licensing RigNet.
 # ---------------------------------------------------------------------------------------------------------
 
+import itertools as it
 import os
+import tempfile
+from io import StringIO
+from pathlib import Path
 from sys import platform
-import trimesh
+
 import numpy as np
 import open3d as o3d
-import itertools as it
-
 import torch
+import trimesh
+
+import streamlit as st
+from gen_dataset import get_geo_edges, get_tpl_edges
+from geometric_proc.common_ops import calc_surface_geodesic, get_bones
+from geometric_proc.compute_volumetric_geodesic import (
+    calc_pts2bone_visible_mat,
+    pts2line
+)
+from models.GCN import JOINTNET_MASKNET_MEANSHIFT as JOINTNET
+from models.PairCls_GCN import PairCls as BONENET
+from models.ROOT_GCN import ROOTNET
+from models.SKINNING import SKINNET
+from mst_generate import getInitId, sample_on_bone
+from pyvirtualdisplay import Display
+from run_skinning import post_filter
 from torch_geometric.data import Data
 from torch_geometric.utils import add_self_loops
-
 from utils import binvox_rw
-from utils.rig_parser import Skel, Info
-from utils.tree_utils import TreeNode
-from utils.io_utils import assemble_skel_skin
-from utils.vis_utils import draw_shifted_pts, show_obj_skel_plotly, show_mesh_vox
 from utils.cluster_utils import meanshift_cluster, nms_meanshift
-from utils.mst_utils import increase_cost_for_outside_bone, primMST_symmetry, loadSkel_recur, inside_check, flip
-
-from geometric_proc.common_ops import get_bones, calc_surface_geodesic
-from geometric_proc.compute_volumetric_geodesic import pts2line, calc_pts2bone_visible_mat
-
-from gen_dataset import get_tpl_edges, get_geo_edges
-from mst_generate import sample_on_bone, getInitId
-from run_skinning import post_filter
-
-from models.GCN import JOINTNET_MASKNET_MEANSHIFT as JOINTNET
-from models.ROOT_GCN import ROOTNET
-from models.PairCls_GCN import PairCls as BONENET
-from models.SKINNING import SKINNET
-from pyvirtualdisplay import Display
-import streamlit as st
-import tempfile
-from pathlib import Path
-from io import StringIO
+from utils.io_utils import assemble_skel_skin
+from utils.mst_utils import (
+    flip,
+    increase_cost_for_outside_bone,
+    inside_check,
+    loadSkel_recur,
+    primMST_symmetry
+)
+from utils.rig_parser import Info, Skel
+from utils.tree_utils import TreeNode
+from utils.vis_utils import (
+    draw_shifted_pts,
+    show_mesh_vox,
+    show_obj_skel_plotly
+)
 
 
 def normalize_obj(mesh_v):
@@ -76,17 +86,17 @@ def create_single_data(mesh_filename):
     v = torch.from_numpy(v).float()
 
     # topology edges
-    print("     gathering topological edges.")
+    print("Gathering topological edges.")
     tpl_e = get_tpl_edges(mesh_v, mesh_f).T
     tpl_e = torch.from_numpy(tpl_e).long()
     tpl_e, _ = add_self_loops(tpl_e, num_nodes=v.size(0))
 
     # surface geodesic distance matrix
-    print("     calculating surface geodesic matrix.")
+    print("Calculating surface geodesic matrix.")
     surface_geodesic = calc_surface_geodesic(mesh)
 
     # geodesic edges
-    print("     gathering geodesic edges.")
+    print("Gathering geodesic edges.")
     geo_e = get_geo_edges(surface_geodesic, mesh_v).T
     geo_e = torch.from_numpy(geo_e).long()
     geo_e, _ = add_self_loops(geo_e, num_nodes=v.size(0))
@@ -95,15 +105,15 @@ def create_single_data(mesh_filename):
     batch = torch.zeros(len(v), dtype=torch.long)
 
     # voxel
-    if not os.path.exists(mesh_filename.replace('.obj', '_normalized.binvox')):
+    if not os.path.exists(mesh_filename.replace(".obj", "_normalized.binvox")):
         if platform == "linux" or platform == "linux2":
             os.system("./binvox -d 88 -pb " + mesh_filename.replace(".obj", "_normalized.obj"))
         elif platform == "win32":
             os.system("binvox.exe -d 88 " + mesh_filename.replace(".obj", "_normalized.obj"))
         else:
-            raise Exception('Sorry, we currently only support windows and linux.')
+            raise Exception("Sorry, we currently only support windows and linux.")
 
-    with open(mesh_filename.replace('.obj', '_normalized.binvox'), 'rb') as fvox:
+    with open(mesh_filename.replace(".obj", "_normalized.binvox"), "rb") as fvox:
         vox = binvox_rw.read_as_3d_array(fvox)
     d.stop()
 
@@ -189,7 +199,7 @@ def predict_skeleton(input_data, vox, root_pred_net, bone_pred_net, mesh_filenam
     parent, key, root_id = primMST_symmetry(cost_matrix, root_id, pred_joints)
     for i in range(len(parent)):
         if parent[i] == -1:
-            pred_skel.root = TreeNode('root', tuple(pred_joints[i]))
+            pred_skel.root = TreeNode("root", tuple(pred_joints[i]))
             break
     loadSkel_recur(pred_skel.root, i, None, pred_joints, parent)
     pred_skel.joint_pos = pred_skel.get_joint_dict()
@@ -251,7 +261,7 @@ def predict_skinning(input_data, pred_skel, skin_pred_net, surface_geodesic, mes
     num_nearest_bone = 5
     bones, bone_names, bone_isleaf = get_bones(pred_skel)
     mesh_v = input_data.pos.data.cpu().numpy()
-    print("     calculating volumetric geodesic distance from vertices to bone. This step takes some time...")
+    print("Calculating volumetric geodesic distance from vertices to bone. This step takes some time...")
     geo_dist = calc_geodesic_matrix(bones, mesh_v, surface_geodesic, mesh_filename, subsampling=subsampling)
     input_samples = []  # joint_pos (x, y, z), (bone_id, 1/D)*5
     loss_mask = []
@@ -297,7 +307,7 @@ def predict_skinning(input_data, pred_skel, skin_pred_net, surface_geodesic, mes
     for v in range(len(skin_pred)):
         for nn_id in range(len(skin_nn[v, :])):
             skin_pred_full[v, skin_nn[v, nn_id]] = skin_pred[v, nn_id]
-    print("     filtering skinning prediction")
+    print("Filtering skinning prediction")
     tpl_e = input_data.tpl_edge_index.data.cpu().numpy()
     skin_pred_full = post_filter(skin_pred_full, tpl_e, num_ring=1)
     skin_pred_full[skin_pred_full < np.max(skin_pred_full, axis=1, keepdims=True) * 0.35] = 0.0
@@ -329,7 +339,7 @@ def tranfer_to_ori_mesh(filename_ori, filename_remesh, pred_rig):
     return tranfer_rig
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     st.set_page_config(layout="wide")
     st.title("Neural Rigging")
     st.text("When you upload a triangle mesh(.obj), automatic rigging will be performed to display the skeleton and download the rig file(.txt).")
@@ -340,103 +350,104 @@ if __name__ == '__main__':
     console.text("\n".join(console_text)) 
     uploaded_file = st.file_uploader("Choose your .obj file", type="obj")
     if uploaded_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".obj") as tmp_file:
             fp = Path(tmp_file.name)
             fp.write_text(uploaded_file.getvalue().decode("utf-8"))
             mesh_filename = str(tmp_file.name)
-            os.rename(mesh_filename, mesh_filename + ".obj")
-            mesh_filename = mesh_filename + ".obj"
-            mesh = o3d.io.read_triangle_mesh(mesh_filename)
-            console_text.append(f"vertices size: {len(np.asarray(mesh.vertices))}, triangles size: {len(np.asarray(mesh.triangles))}, filename: {mesh_filename}, isfile: {os.path.isfile(mesh_filename)}")
+        mesh = o3d.io.read_triangle_mesh(mesh_filename)
+        console_text.append(f"vertices size: {len(np.asarray(mesh.vertices))}, triangles size: {len(np.asarray(mesh.triangles))}, filename: {mesh_filename}, isfile: {os.path.isfile(mesh_filename)}")
+        console.text("\n".join(console_text))
+        if st.button("Generate rig"):
+            # downsample_skinning is used to speed up the calculation of volumetric geodesic distance
+            # and to save cpu memory in skinning calculation.
+            # Change to False to be more accurate but less efficient.
+            downsample_skinning = True
+
+            # load all weights
+            console_text.append("Loading all networks...")
             console.text("\n".join(console_text))
-            if st.button('Generate rig'):
-                # downsample_skinning is used to speed up the calculation of volumetric geodesic distance
-                # and to save cpu memory in skinning calculation.
-                # Change to False to be more accurate but less efficient.
-                downsample_skinning = True
+            print("Loading all networks...")
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-                # load all weights
-                console_text.append("loading all networks...")
-                console.text("\n".join(console_text))
-                print("loading all networks...")
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            jointNet = JOINTNET()
+            jointNet.to(device)
+            jointNet.eval()
+            jointNet_checkpoint = torch.load("checkpoints/gcn_meanshift/model_best.pth.tar", map_location=device)
+            jointNet.load_state_dict(jointNet_checkpoint["state_dict"])
+            console_text.append("Joint prediction network loaded.")
+            console.text("\n".join(console_text))
+            print("Joint prediction network loaded.")
 
-                jointNet = JOINTNET()
-                jointNet.to(device)
-                jointNet.eval()
-                jointNet_checkpoint = torch.load('checkpoints/gcn_meanshift/model_best.pth.tar', map_location=device)
-                jointNet.load_state_dict(jointNet_checkpoint['state_dict'])
-                console_text.append("joint prediction network loaded.")
-                console.text("\n".join(console_text))
-                print("     joint prediction network loaded.")
+            rootNet = ROOTNET()
+            rootNet.to(device)
+            rootNet.eval()
+            rootNet_checkpoint = torch.load("checkpoints/rootnet/model_best.pth.tar", map_location=device)
+            rootNet.load_state_dict(rootNet_checkpoint["state_dict"])
+            console_text.append("Root prediction network loaded.")
+            console.text("\n".join(console_text))
+            print("Root prediction network loaded.")
 
-                rootNet = ROOTNET()
-                rootNet.to(device)
-                rootNet.eval()
-                rootNet_checkpoint = torch.load('checkpoints/rootnet/model_best.pth.tar', map_location=device)
-                rootNet.load_state_dict(rootNet_checkpoint['state_dict'])
-                console_text.append("root prediction network loaded.")
-                console.text("\n".join(console_text))
-                print("     root prediction network loaded.")
+            boneNet = BONENET()
+            boneNet.to(device)
+            boneNet.eval()
+            boneNet_checkpoint = torch.load("checkpoints/bonenet/model_best.pth.tar", map_location=device)
+            boneNet.load_state_dict(boneNet_checkpoint["state_dict"])
+            console_text.append("Connection prediction network loaded.")
+            console.text("\n".join(console_text))
+            print("Connection prediction network loaded.")
 
-                boneNet = BONENET()
-                boneNet.to(device)
-                boneNet.eval()
-                boneNet_checkpoint = torch.load('checkpoints/bonenet/model_best.pth.tar', map_location=device)
-                boneNet.load_state_dict(boneNet_checkpoint['state_dict'])
-                console_text.append("connection prediction network loaded.")
-                console.text("\n".join(console_text))
-                print("     connection prediction network loaded.")
+            skinNet = SKINNET(nearest_bone=5, use_Dg=True, use_Lf=True)
+            skinNet_checkpoint = torch.load("checkpoints/skinnet/model_best.pth.tar", map_location=device)
+            skinNet.load_state_dict(skinNet_checkpoint["state_dict"])
+            skinNet.to(device)
+            skinNet.eval()
+            console_text.append("Skinning prediction network loaded.")
+            console.text("\n".join(console_text))
+            print("Skinning prediction network loaded.")
 
-                skinNet = SKINNET(nearest_bone=5, use_Dg=True, use_Lf=True)
-                skinNet_checkpoint = torch.load('checkpoints/skinnet/model_best.pth.tar', map_location=device)
-                skinNet.load_state_dict(skinNet_checkpoint['state_dict'])
-                skinNet.to(device)
-                skinNet.eval()
-                console_text.append("skinning prediction network loaded.")
-                console.text("\n".join(console_text))
-                print("     skinning prediction network loaded.")
+            # For best results, we will need to override the learned bandwidth and its associated threshold
+            # To process other input characters, please first try the learned bandwidth (0.0429 in the provided model), and the default threshold 1e-5.
+            # We also use these two default parameters for processing all test models in batch.
+            bandwidth, threshold = 0.05, 1e-5
 
-                # For best results, we will need to override the learned bandwidth and its associated threshold
-                # To process other input characters, please first try the learned bandwidth (0.0429 in the provided model), and the default threshold 1e-5.
-                # We also use these two default parameters for processing all test models in batch.
-                bandwidth, threshold = 0.05, 1e-5
+            # create data used for inferece
+            console_text.append(f"Creating data for {mesh_filename}")
+            console.text("\n".join(console_text))
+            data, vox, surface_geodesic, translation_normalize, scale_normalize = create_single_data(mesh_filename)
+            data.to(device)
+            console_text.append("Predicting joints")
+            console.text("\n".join(console_text))
+            print("Predicting joints")
+            data = predict_joints(data, vox, jointNet, threshold, bandwidth=bandwidth,
+                                  mesh_filename=mesh_filename.replace(".obj", "_normalized.obj"))
+            data.to(device)
+            console_text.append("predicting connectivity")
+            console.text("\n".join(console_text))
+            print("Predicting connectivity")
+            pred_skeleton, fig = predict_skeleton(data, vox, rootNet, boneNet,
+                                             mesh_filename=mesh_filename.replace(".obj", "_normalized.obj"))
+            st.plotly_chart(fig, use_container_width=True)
 
-                # create data used for inferece
-                console_text.append(f"creating data for {mesh_filename}")
-                console.text("\n".join(console_text))
-                data, vox, surface_geodesic, translation_normalize, scale_normalize = create_single_data(mesh_filename)
-                data.to(device)
-                console_text.append("predicting joints")
-                console.text("\n".join(console_text))
-                print("predicting joints")
-                data = predict_joints(data, vox, jointNet, threshold, bandwidth=bandwidth,
-                                      mesh_filename=mesh_filename.replace(".obj", "_normalized.obj"))
-                data.to(device)
-                console_text.append("predicting connectivity")
-                console.text("\n".join(console_text))
-                print("predicting connectivity")
-                pred_skeleton, fig = predict_skeleton(data, vox, rootNet, boneNet,
-                                                 mesh_filename=mesh_filename.replace(".obj", "_normalized.obj"))
-                st.plotly_chart(fig, use_container_width=True)
+            console_text.append("Predicting skinning")
+            console.text("\n".join(console_text))
+            print("Predicting skinning")
+            pred_rig = predict_skinning(data, pred_skeleton, skinNet, surface_geodesic,
+                                        mesh_filename.replace(".obj", "_normalized.obj"),
+                                        subsampling=downsample_skinning)
 
-                console_text.append("predicting skinning")
-                console.text("\n".join(console_text))
-                print("predicting skinning")
-                pred_rig = predict_skinning(data, pred_skeleton, skinNet, surface_geodesic,
-                                            mesh_filename.replace(".obj", "_normalized.obj"),
-                                            subsampling=downsample_skinning)
+            # here we reverse the normalization to the original scale and position
+            pred_rig.normalize(scale_normalize, -translation_normalize)
 
-                # here we reverse the normalization to the original scale and position
-                pred_rig.normalize(scale_normalize, -translation_normalize)
-
-                console_text.append("Saving result")
-                console.text("\n".join(console_text))
-                print("Saving result")
-                pred_rig.save(mesh_filename.replace('.obj', '_rig.txt'))
-                console_text.append("Done!")
-                console.text("\n".join(console_text))
-                print("Done!")
-                with open(mesh_filename.replace('.obj', '_rig.txt')) as f:
-                    s = f.read()
-                    st.download_button("downlowd rig file(.txt)", s, file_name=str(uploaded_file.name).replace('.obj', '_rig.txt'), mime='text/plain')
+            console_text.append("Saving result")
+            console.text("\n".join(console_text))
+            print("Saving result")
+            pred_rig.save(mesh_filename.replace(".obj", "_rig.txt"))
+            console_text.append("Done!")
+            console.text("\n".join(console_text))
+            print("Done!")
+            with open(mesh_filename.replace(".obj", "_rig.txt")) as f:
+                s = f.read()
+            if st.download_button("Downlowd rig file(.txt)", s, file_name=str(uploaded_file.name).replace(".obj", "_rig.txt"), mime="text/plain"):
+                if st.button("Try again"):
+                    pass
+            os.remove(mesh_filename)
