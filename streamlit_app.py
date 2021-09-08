@@ -377,6 +377,7 @@ def tranfer_to_ori_mesh(filename_ori, filename_remesh, pred_rig):
 
 if __name__ == '__main__':
     st.set_page_config(layout="wide")
+    st.subheader("console")
     console = st.empty()
     input_folder = "quick_start/"
 
