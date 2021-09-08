@@ -114,7 +114,10 @@ def show_obj_skel_plotly(mesh_name, root, show=True):
                 xaxis=dict(visible=False),
                 yaxis=dict(visible=False),
                 zaxis=dict(visible=False)
-            )
+            ),
+            autosize=False,
+            width=700,
+            height=700,
         )
     )
     fig.update_layout(scene_aspectmode='data')
