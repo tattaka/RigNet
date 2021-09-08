@@ -438,21 +438,24 @@ if __name__ == '__main__':
     #model_id, bandwidth, threshold = "9000", 0.035, 0.16e-5
 
     # create data used for inferece
+    st.text("creating data for model ID {:s}".format(model_id))
     print("creating data for model ID {:s}".format(model_id))
     mesh_filename = os.path.join(input_folder, '{:s}_remesh.obj'.format(model_id))
     data, vox, surface_geodesic, translation_normalize, scale_normalize = create_single_data(mesh_filename)
     data.to(device)
-
+    st.text("predicting joints")
     print("predicting joints")
     data = predict_joints(data, vox, jointNet, threshold, bandwidth=bandwidth,
                           mesh_filename=mesh_filename.replace("_remesh.obj", "_normalized.obj"))
     data.to(device)
+    st.text("predicting connectivity")
     print("predicting connectivity")
     pred_skeleton, fig = predict_skeleton(data, vox, rootNet, boneNet,
                                      mesh_filename=mesh_filename.replace("_remesh.obj", "_normalized.obj"))
     st.set_page_config(layout="wide")
     st.plotly_chart(fig, use_container_width=True)
     
+    st.text("predicting skinning")
     print("predicting skinning")
     pred_rig = predict_skinning(data, pred_skeleton, skinNet, surface_geodesic,
                                 mesh_filename.replace("_remesh.obj", "_normalized.obj"),
@@ -460,7 +463,8 @@ if __name__ == '__main__':
 
     # here we reverse the normalization to the original scale and position
     pred_rig.normalize(scale_normalize, -translation_normalize)
-
+    
+    st.text("Saving result")
     print("Saving result")
     if True:
         # here we use original mesh tesselation (without remeshing)
