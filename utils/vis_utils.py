@@ -90,7 +90,7 @@ def o3d2plotly(mesh, opacity=0.5, use_color=True):
         vertexcolor=np.asarray(mesh.vertex_colors) if use_color else None,
         opacity=opacity)
 
-def show_obj_skel_plotly(mesh_name, root):
+def show_obj_skel_plotly(mesh_name, root, show=True):
 
     # draw mesh
     mesh = o3d.io.read_triangle_mesh(mesh_name)
@@ -118,7 +118,10 @@ def show_obj_skel_plotly(mesh_name, root):
         )
     )
     fig.update_layout(scene_aspectmode='data')
-    fig.show()
+    if show:
+        fig.show()
+    else:
+        return fig
     
 
 def draw_shifted_pts(mesh_name, pts, weights=None):
