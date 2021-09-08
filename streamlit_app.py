@@ -376,6 +376,7 @@ def tranfer_to_ori_mesh(filename_ori, filename_remesh, pred_rig):
 
 
 if __name__ == '__main__':
+    st.set_page_config(layout="wide")
     input_folder = "quick_start/"
 
     # downsample_skinning is used to speed up the calculation of volumetric geodesic distance
@@ -452,7 +453,6 @@ if __name__ == '__main__':
     print("predicting connectivity")
     pred_skeleton, fig = predict_skeleton(data, vox, rootNet, boneNet,
                                      mesh_filename=mesh_filename.replace("_remesh.obj", "_normalized.obj"))
-    st.set_page_config(layout="wide")
     st.plotly_chart(fig, use_container_width=True)
     
     st.text("predicting skinning")
