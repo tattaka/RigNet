@@ -377,6 +377,7 @@ def tranfer_to_ori_mesh(filename_ori, filename_remesh, pred_rig):
 
 if __name__ == '__main__':
     st.set_page_config(layout="wide")
+    console = st.empty()
     input_folder = "quick_start/"
 
     # downsample_skinning is used to speed up the calculation of volumetric geodesic distance
@@ -385,6 +386,8 @@ if __name__ == '__main__':
     downsample_skinning = True
 
     # load all weights
+    console_text = ["loading all networks..."]
+    console.text("\n".joint(console_text))
     print("loading all networks...")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -393,6 +396,8 @@ if __name__ == '__main__':
     jointNet.eval()
     jointNet_checkpoint = torch.load('checkpoints/gcn_meanshift/model_best.pth.tar', map_location=device)
     jointNet.load_state_dict(jointNet_checkpoint['state_dict'])
+    console_text.append("joint prediction network loaded.")
+    console.text("\n".joint(console_text))
     print("     joint prediction network loaded.")
 
     rootNet = ROOTNET()
@@ -400,6 +405,8 @@ if __name__ == '__main__':
     rootNet.eval()
     rootNet_checkpoint = torch.load('checkpoints/rootnet/model_best.pth.tar', map_location=device)
     rootNet.load_state_dict(rootNet_checkpoint['state_dict'])
+    console_text.append("root prediction network loaded.")
+    console.text("\n".joint(console_text))
     print("     root prediction network loaded.")
 
     boneNet = BONENET()
@@ -407,6 +414,8 @@ if __name__ == '__main__':
     boneNet.eval()
     boneNet_checkpoint = torch.load('checkpoints/bonenet/model_best.pth.tar', map_location=device)
     boneNet.load_state_dict(boneNet_checkpoint['state_dict'])
+    console_text.append("connection prediction network loaded.")
+    console.text("\n".joint(console_text))
     print("     connection prediction network loaded.")
 
     skinNet = SKINNET(nearest_bone=5, use_Dg=True, use_Lf=True)
@@ -414,6 +423,8 @@ if __name__ == '__main__':
     skinNet.load_state_dict(skinNet_checkpoint['state_dict'])
     skinNet.to(device)
     skinNet.eval()
+    console_text.append("skinning prediction network loaded.")
+    console.text("\n".joint(console_text))
     print("     skinning prediction network loaded.")
 
     # Here we provide 16~17 examples. For best results, we will need to override the learned bandwidth and its associated threshold
@@ -439,23 +450,27 @@ if __name__ == '__main__':
     #model_id, bandwidth, threshold = "9000", 0.035, 0.16e-5
 
     # create data used for inferece
-    st.text("creating data for model ID {:s}".format(model_id))
+    console_text.append("creating data for model ID {:s}".format(model_id))
+    console.text("\n".joint(console_text))
     print("creating data for model ID {:s}".format(model_id))
     mesh_filename = os.path.join(input_folder, '{:s}_remesh.obj'.format(model_id))
     data, vox, surface_geodesic, translation_normalize, scale_normalize = create_single_data(mesh_filename)
     data.to(device)
-    st.text("predicting joints")
+    console_text.append("predicting joints")
+    console.text("\n".joint(console_text))
     print("predicting joints")
     data = predict_joints(data, vox, jointNet, threshold, bandwidth=bandwidth,
                           mesh_filename=mesh_filename.replace("_remesh.obj", "_normalized.obj"))
     data.to(device)
-    st.text("predicting connectivity")
+    console_text.append("predicting connectivity")
+    console.text("\n".joint(console_text))
     print("predicting connectivity")
     pred_skeleton, fig = predict_skeleton(data, vox, rootNet, boneNet,
                                      mesh_filename=mesh_filename.replace("_remesh.obj", "_normalized.obj"))
     st.plotly_chart(fig, use_container_width=True)
     
-    st.text("predicting skinning")
+    console_text.append("predicting skinning")
+    console.text("\n".joint(console_text))
     print("predicting skinning")
     pred_rig = predict_skinning(data, pred_skeleton, skinNet, surface_geodesic,
                                 mesh_filename.replace("_remesh.obj", "_normalized.obj"),
@@ -464,7 +479,8 @@ if __name__ == '__main__':
     # here we reverse the normalization to the original scale and position
     pred_rig.normalize(scale_normalize, -translation_normalize)
     
-    st.text("Saving result")
+    console_text.append("Saving result")
+    console.text("\n".joint(console_text))
     print("Saving result")
     if True:
         # here we use original mesh tesselation (without remeshing)
@@ -474,4 +490,6 @@ if __name__ == '__main__':
     else:
         # here we use remeshed mesh
         pred_rig.save(mesh_filename.replace('.obj', '_rig.txt'))
+    console_text.append("Done!")
+    console.text("\n".joint(console_text))
     print("Done!")
