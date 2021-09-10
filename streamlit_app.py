@@ -408,7 +408,7 @@ if __name__ == "__main__":
             # For best results, we will need to override the learned bandwidth and its associated threshold
             # To process other input characters, please first try the learned bandwidth (0.0429 in the provided model), and the default threshold 1e-5.
             # We also use these two default parameters for processing all test models in batch.
-            bandwidth, threshold = 0.05, 1e-5
+            bandwidth, threshold = 0.0429, 1e-5
 
             # create data used for inferece
             console_text.append(f"Creating data for {mesh_filename}")
